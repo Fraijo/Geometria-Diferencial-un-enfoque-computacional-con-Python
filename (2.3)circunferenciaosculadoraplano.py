@@ -9,10 +9,7 @@ config.frame_height = 9
 
 config.pixel_width = 1920
 config.pixel_height = 1080
-
-
-
-class osculadora(Scene):
+class osculadora2d(Scene):
     
     #función otra vez
     def func(self, u, t):
@@ -22,35 +19,6 @@ class osculadora(Scene):
             0
             ])
 
-    def func1(self, u, t):
-        x = sy.symbols('x')
-        fan = (x, sy.sin(x), 0) #función
-        d1 = [sy.diff(fan[i], x).evalf(subs={x:t}) for i in range(0,3)] #derivada primera
-        d2 = [sy.diff(fan[i], x, 2).evalf(subs={x:t}) for i in range(0,3)] #derivada segunda
-
-        num = (d1[0]*d2[1] - d1[1]*d2[0] )/(((d1[0])**2 + (d1[1])**2 )**(3/2))
-        #num = sy.sqrt(np.cross(d1,d2).T @ np.cross(d1,d2)) #norma del producto cruz
-        #den = sy.sqrt(np.array(d1).T @ np.array(d1)) #denominador
-        #res = num/(den)**3 #curvatura
-
-        k = np.float64(num) #curvatura formateada
-
-        if k == 0:
-            k = np.inf
-        else:
-            k = np.float64(num)
-        
-        r = np.float64(sy.sqrt((d1[0])**2 + (d1[1])**2 )) #radio
-        
-        xc = np.float64(fan[0].evalf(subs={x:t}) - (d1[1]/(k*r))) #xc
-        yc = np.float64(fan[1].evalf(subs={x:t}) + (d1[0]/(k*r))) #yc
-        
-        return np.array([
-            np.cos(u)/k + xc,
-            np.sin(u)/k + yc,
-            0
-            ])
-    
     def construct(self):
 
         #parámetros
@@ -58,6 +26,22 @@ class osculadora(Scene):
         r = 8 #rango de los ejes
         e = 2 #espaciado entre las marcas de los ejes
 
+        self.x_sym = sy.symbols('x')
+        fan_sym = (self.x_sym, sy.sin(self.x_sym), 0) #función
+        
+        # Cálculo de derivadas simbólicas
+        d1_sym = [sy.diff(fan_sym[i], self.x_sym) for i in range(0,3)] #derivada primera
+        d2_sym = [sy.diff(fan_sym[i], self.x_sym, 2) for i in range(0,3)] #derivada segunda
+
+        self.func_x = sy.lambdify(self.x_sym, fan_sym[0], 'numpy')
+        self.func_y = sy.lambdify(self.x_sym, fan_sym[1], 'numpy')
+        
+        self.d1_0 = sy.lambdify(self.x_sym, d1_sym[0], 'numpy')
+        self.d1_1 = sy.lambdify(self.x_sym, d1_sym[1], 'numpy')
+        
+        self.d2_0 = sy.lambdify(self.x_sym, d2_sym[0], 'numpy')
+        self.d2_1 = sy.lambdify(self.x_sym, d2_sym[1], 'numpy')
+        
         #ejes
         axes = Axes(
             x_range = [-r,r,e], x_length = l,
@@ -92,5 +76,45 @@ class osculadora(Scene):
         line = Line(c.get_center(),ball.get_center(), color= BLACK)
         line.add_updater(lambda x: x.become(Line(c.get_center(),ball.get_center(), color= BLACK)))
 
-        self.add(C, c, ball, line)        
+        self.add(C, c, ball, line)     
         self.play(s.animate.set_value(2*PI), rate_func=linear, run_time=10)
+
+
+    def func1(self, u, t):
+        
+        d1_0 = self.d1_0(t)
+        d1_1 = self.d1_1(t)
+        d2_0 = self.d2_0(t)
+        d2_1 = self.d2_1(t)
+
+        # Cálculo de la curvatura (k) y radio (R)
+        num = (d1_0 * d2_1 - d1_1 * d2_0)
+        den = (d1_0**2 + d1_1**2)**(3/2)
+        
+        # Curvatura
+        k = num / den if den != 0 else 0
+
+        if abs(k) < 1e-9:
+            k = np.inf
+        
+        # Radio de curvatura (R = 1/k)
+        R = 1/k if k != 0 else np.inf
+        
+        # Valores de la función en el punto t
+        x_at_t = self.func_x(t)
+        y_at_t = self.func_y(t)
+
+        if k == np.inf or R == np.inf:
+            xc, yc = x_at_t, y_at_t
+            return np.array([x_at_t, y_at_t, 0])
+        else:
+            
+            r_val_sq = (d1_0**2 + d1_1**2)
+            xc = x_at_t - d1_1 * r_val_sq / num
+            yc = y_at_t + d1_0 * r_val_sq / num
+
+            return np.array([
+                R*np.cos(u) + xc,
+                R*np.sin(u) + yc,
+                0
+                ])
