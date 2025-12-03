@@ -11,10 +11,26 @@ config.pixel_width = 1920
 config.pixel_height = 1080
 
 
+x_sym = sy.symbols('x')
+
+#función
+fan_sym = sy.Matrix([
+    (sy.cos(x_sym))**3,
+    (sy.sin(x_sym))**3,
+    0
+])
+
+d1_sym = sy.diff(fan_sym, x_sym, 1) # Derivada primera simbólica
+d2_sym = sy.diff(fan_sym, x_sym, 2) # Derivada segunda simbólica
+
+
+fan_func = sy.lambdify(x_sym, fan_sym, "numpy")
+d1_func = sy.lambdify(x_sym, d1_sym, "numpy")
+d2_func = sy.lambdify(x_sym, d2_sym, "numpy")
 
 class evolvente(Scene):
     
-    #función 
+    # Función para la curva
     def func(self, u, t):
         return np.array([
             (np.cos(u))**3,
@@ -22,40 +38,52 @@ class evolvente(Scene):
             0
             ])
 
+    # Función para la circunferencia osculadora y el centro de curvatura
     def func1(self, u, t):
-        x = sy.symbols('x')
-        fan = ((sy.cos(x))**3, (sy.sin(x))**3, 0) #función
-        d1 = np.array([sy.diff(fan[i], x).evalf(subs={x:t}) for i in range(0,3)], dtype = float) #derivada primera
-        d2 = np.array([sy.diff(fan[i], x, 2).evalf(subs={x:t}) for i in range(0,3)], dtype = float) #derivada segunda
+        ft = fan_func(t).flatten()
+        d1 = d1_func(t).flatten()
+        d2 = d2_func(t).flatten()
 
-        num = np.float64((d1[0]*d2[1] - d1[1]*d2[0] )/(((d1[0])**2 + (d1[1])**2 )**(3/2)))
+        num = np.float64(d1[0] * d2[1] - d1[1] * d2[0])
+        mod_d1_sq = d1[0]**2 + d1[1]**2
+        den = np.power(mod_d1_sq, 3/2)
 
-        k = np.float64(num) #curvatura formateada
-        r = np.float64(sy.sqrt((d1[0])**2 + (d1[1])**2 )) #radio
+        epsilon = 1e-6 
+        k = np.float64(num / (den if den > epsilon else epsilon)) 
+
+        r = np.float64(1.0 / k) 
         
-        xc = np.float64(fan[0].evalf(subs={x:t}) - (d1[1]/(k*r))) #xc
-        yc = np.float64(fan[1].evalf(subs={x:t}) + (d1[0]/(k*r))) #yc
+        factor = mod_d1_sq / num
         
-        return np.array([np.cos(u)/k + xc, np.sin(u)/k + yc, xc, yc])
+        xc = np.float64(ft[0] - d1[1] * factor) 
+        yc = np.float64(ft[1] + d1[0] * factor) 
+        
+        R_circulo = np.float64(abs(r))
+
+        # Ecuación de la circunferencia osculadora
+        circle_x = R_circulo * np.cos(u) + xc
+        circle_y = R_circulo * np.sin(u) + yc
+        
+        return np.array([circle_x, circle_y, xc, yc])
     
     def construct(self):
 
-        #parámetros
-        l = config.frame_height-0.5 #longitud ejes
-        r = 4 #rango de los ejes
-        e = 2 #espaciado entre las marcas de los ejes
+        # Parámetros
+        l = config.frame_height-0.5
+        r = 4
+        e = 2
 
-        #ejes
+        # Ejes
         axes = Axes(
             x_range = [-r,r,e], x_length = l,
             y_range = [-r,r,e], y_length = l,
-            )#.add_coordinates()
+            )
         axes.set_color(BLACK)
         self.add(axes)
         
-        s = ValueTracker(0.001) #tiempo t en 0
-        
-        #función verde
+        s = ValueTracker(0.001)
+
+        # Curva
         C = always_redraw(
             lambda: ParametricFunction(
             lambda u: axes.c2p(*self.func(u, s.get_value())[0:2]),
@@ -63,48 +91,49 @@ class evolvente(Scene):
             color = GREEN
         ))
 
-        #circunferencia osculadora
+        # Circunferencia osculadora
         c = always_redraw(
             lambda: ParametricFunction(
             lambda u: axes.c2p(*self.func1(u, s.get_value())[0:2]),
             t_range=[0, 2*PI],
             color = PURPLE
         ))
+        
+        # Evoluta
+        ev_dot = always_redraw(
+            lambda: Dot(
+                axes.c2p(*self.func1(0, s.get_value())[2:4]),
+                color = RED,
+                radius = 0.05
+            )
+        )
 
-        #evoluta
-        ev = always_redraw(
-            lambda: ParametricFunction(
-            lambda u: axes.c2p(*self.func1(u, s.get_value())[2:4]),
-            t_range=[0, 2*PI],
-            color = RED
-        ))
-
-        #punto que dibuja
+        # Punto que dibuja
         ball = Dot(radius=0.05, color = BLACK)
         ball.add_updater(lambda x: x.move_to(axes.c2p(*self.func(s.get_value(), 0)[0:2])))
 
-        #radio 
-        line = Line(c.get_center(),ball.get_center(), color= BLACK)
-        line.add_updater(lambda x: x.become(Line(c.get_center(),ball.get_center(), color= BLACK)))
-
+        # Punto del centro de curvatura
         bola = Dot(radius=0.05, color = BLACK)
-        bola.add_updater(lambda x: x.move_to(c.get_center()))
+        bola.add_updater(lambda x: x.move_to(axes.c2p(*self.func1(0, s.get_value())[2:4])))
 
-        #definimos la traza 
+        # Radio
+        line = Line(bola.get_center(),ball.get_center(), color= BLACK)
+        line.add_updater(lambda x: x.become(Line(bola.get_center(),ball.get_center(), color= BLACK)))
+
+        # Definimos la traza (evolvente)
         path = VMobject()
         path.set_points_as_corners([bola.get_center(), bola.get_center()])
 
-        def update_path(path):
-            previous_path = path.copy()
+        def update_path(path_obj):
+            previous_path = path_obj.copy()
             previous_path.add_points_as_corners([bola.get_center()])
-            path.become(previous_path)
+            path_obj.become(previous_path)
         path.add_updater(update_path)
         path.set_color(ORANGE)
 
-        #agrupamos
+        # Agrupamos
         movil = VGroup(bola,path)
-        movil.move_to(c.get_start())
-
-        self.add(C, c, ball, line, ev, movil)        
-        self.play(s.animate.set_value(2*PI), rate_func=linear, run_time=10)
-
+        movil.move_to(axes.c2p(*self.func1(0, s.get_value())[2:4]))
+        
+        self.add(C, c, ev_dot, ball, line, movil)
+        self.play(s.animate.set_value(2 * PI), rate_func=linear, run_time=5)
